@@ -14,6 +14,8 @@ router = APIRouter()
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user."""
+    from app.models.company import Company
+    
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
@@ -21,6 +23,23 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
+    
+    # If no company_id provided, create or use default company
+    company_id = user_data.company_id
+    if not company_id:
+        # Check if default company exists
+        default_company = db.query(Company).first()
+        if not default_company:
+            # Create default company
+            default_company = Company(
+                name="Default Company",
+                country="USA",
+                default_currency="USD"
+            )
+            db.add(default_company)
+            db.commit()
+            db.refresh(default_company)
+        company_id = default_company.id
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
@@ -30,7 +49,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         first_name=user_data.first_name,
         last_name=user_data.last_name,
         role=user_data.role,
-        company_id=user_data.company_id
+        company_id=company_id
     )
     
     db.add(db_user)
@@ -65,7 +84,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse.from_orm(user)
+        "user": UserResponse.model_validate(user)
     }
 
 @router.post("/forgot-password")
